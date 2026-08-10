@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "garmin-sheets-sync"
+version = "0.1.0"
+description = "One-shot Garmin Connect to Google Sheets ingestion service"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Sam Wade" }]
+dependencies = []
+
+[project.optional-dependencies]
+live = [
+  "garminconnect==0.3.9",
+  "gspread==6.2.1",
+]
+dev = [
+  "mypy>=1.16,<2",
+  "pytest>=8.3,<10",
+  "pytest-cov>=6,<8",
+  "ruff>=0.12,<1",
+]
+
+[project.scripts]
+garmin-sheets-sync = "garmin_sheets_sync.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "SIM", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["garminconnect", "gspread"]
+ignore_missing_imports = true

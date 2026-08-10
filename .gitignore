@@ -1,0 +1,16 @@
+.env
+.venv/
+.local/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.db
+*.sqlite3
+coverage.xml
+.coverage
+htmlcov/
+garmin_tokens.json
+*service-account*.json

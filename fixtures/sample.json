@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "weights": [
+    {
+      "measured_at": "2026-08-08T07:12:34+02:00",
+      "weight_kg": 82.4,
+      "body_fat_percent": 18.1,
+      "skeletal_muscle_mass_kg": 33.8,
+      "bone_mass_kg": 3.6,
+      "body_water_percent": 59.2,
+      "bmi": 24.7
+    },
+    {
+      "measured_at": "2026-08-08T19:03:00+02:00",
+      "weight_kg": 82.1,
+      "body_fat_percent": null,
+      "skeletal_muscle_mass_kg": null,
+      "bone_mass_kg": null,
+      "body_water_percent": null,
+      "bmi": null
+    }
+  ],
+  "daily_activity": [
+    {
+      "date": "2026-08-08",
+      "steps": 0,
+      "active_calories": 0
+    },
+    {
+      "date": "2026-08-09",
+      "steps": 10432,
+      "active_calories": 615
+    }
+  ],
+  "activities": [
+    {
+      "activity_id": "12345678901234567",
+      "name": "Morning Run",
+      "type": "running",
+      "started_at": "2026-08-09T06:30:00+02:00",
+      "duration_seconds": 2732.5,
+      "distance_meters": 8014.2,
+      "calories_kcal": 612,
+      "average_heart_rate_bpm": 149,
+      "max_heart_rate_bpm": 176,
+      "connect_url": null
+    },
+    {
+      "activity_id": "12345678901234568",
+      "name": "Strength",
+      "type": "strength_training",
+      "started_at": "2026-08-09T18:00:00+02:00",
+      "duration_seconds": 3600,
+      "distance_meters": null,
+      "calories_kcal": null,
+      "average_heart_rate_bpm": null,
+      "max_heart_rate_bpm": null,
+      "connect_url": null
+    }
+  ]
+}
