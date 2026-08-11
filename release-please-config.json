@@ -5,6 +5,7 @@
       "release-type": "python",
       "package-name": "garmin-sheets-sync",
       "include-v-in-tag": true,
+      "include-component-in-tag": false,
       "extra-files": [
         {
           "type": "generic",
