@@ -87,6 +87,29 @@ def test_cli_fixture_mode_needs_no_credentials(
     assert result == 0
 
 
+def test_cli_worker_needs_no_credentials(monkeypatch: MonkeyPatch) -> None:
+    for name in (
+        "GARMIN_EMAIL",
+        "GARMIN_PASSWORD",
+        "GOOGLE_SERVICE_ACCOUNT_FILE",
+        "GOOGLE_SHEET_ID",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    worker_started = False
+
+    def run_worker() -> int:
+        nonlocal worker_started
+        worker_started = True
+        return 0
+
+    monkeypatch.setattr(cli, "_run_worker", run_worker)
+
+    result = main(["worker"])
+
+    assert result == 0
+    assert worker_started is True
+
+
 def test_cli_acquires_lock_before_building_source(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:

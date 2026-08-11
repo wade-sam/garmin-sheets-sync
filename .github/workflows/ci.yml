@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: "0.8.3"
+          enable-cache: true
+
+      - name: Verify lockfile
+        run: uv lock --check
+
+      - name: Install development environment
+        run: uv sync --frozen --extra dev
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Run Ruff
+        run: uv run ruff check .
+
+      - name: Run mypy
+        run: uv run mypy
+
+  container:
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Build image
+        run: docker build --build-arg APP_VERSION=ci -t garmin-sheets-sync:ci .
+
+      - name: Verify worker lifecycle
+        run: |
+          container_id="$(docker run --detach garmin-sheets-sync:ci)"
+          trap 'docker rm --force "$container_id" >/dev/null 2>&1 || true' EXIT
+          sleep 2
+          test "$(docker inspect --format '{{.State.Running}}' "$container_id")" = "true"
+          docker exec "$container_id" garmin-sheets-sync --version
+          docker stop "$container_id"
+
+      - name: Verify offline image sync is idempotent
+        run: |
+          volume="garmin-sync-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker volume create "$volume"
+          trap 'docker volume rm "$volume" >/dev/null 2>&1 || true' EXIT
+
+          run_sync() {
+            docker run --rm \
+              --env ALERT_MODE=log \
+              --env SYNC_SOURCE=fixture \
+              --env SYNC_DESTINATION=sqlite \
+              --env FIXTURE_PATH=/fixtures/sample.json \
+              --env SQLITE_PATH=/data/sync.db \
+              --env SYNC_LOCK_FILE=/data/sync.lock \
+              --mount "type=volume,src=$volume,dst=/data" \
+              --mount "type=bind,src=$PWD/fixtures,dst=/fixtures,readonly" \
+              garmin-sheets-sync:ci sync \
+              --start 2026-08-08 \
+              --end 2026-08-09
+          }
+
+          first_output="$(run_sync 2>&1)"
+          second_output="$(run_sync 2>&1)"
+          printf '%s\n' "$first_output"
+          printf '%s\n' "$second_output"
+          grep -q 'inserted=6 updated=0 unchanged=0' <<< "$first_output"
+          grep -q 'inserted=0 updated=0 unchanged=6' <<< "$second_output"

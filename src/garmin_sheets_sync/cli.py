@@ -1,14 +1,18 @@
-"""Command-line entry point for one-shot sync runs."""
+"""Command-line entry points for scheduled workers and one-shot sync runs."""
 
 from __future__ import annotations
 
 import argparse
 import logging
 import os
+import signal
+import threading
 from collections.abc import Sequence
 from datetime import date, timedelta
 from pathlib import Path
+from types import FrameType
 
+from garmin_sheets_sync import __version__
 from garmin_sheets_sync.adapters.alerts import (
     LogAlertSink,
     SmtpAlertSink,
@@ -63,6 +67,7 @@ def _boolean(value: str | None, *, default: bool = False) -> bool:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="garmin-sheets-sync")
+    parser.add_argument("--version", action="version", version=__version__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     sync = subparsers.add_parser("sync", help="fetch and upsert one date window")
     sync.add_argument(
@@ -99,6 +104,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path(_env("SYNC_LOCK_FILE", ".local/sync.lock") or ".local/sync.lock"),
     )
     sync.add_argument(
+        "--log-level",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        default=_env("LOG_LEVEL", "INFO"),
+    )
+    worker = subparsers.add_parser(
+        "worker",
+        help="keep the container available for externally scheduled sync commands",
+    )
+    worker.add_argument(
         "--log-level",
         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
         default=_env("LOG_LEVEL", "INFO"),
@@ -172,6 +186,27 @@ def _validate_alert_mode(args: argparse.Namespace) -> None:
         )
 
 
+def _run_worker() -> int:
+    stopped = threading.Event()
+
+    def stop(signum: int, _frame: FrameType | None) -> None:
+        logger.info("worker_stopping signal=%s", signal.Signals(signum).name)
+        stopped.set()
+
+    watched_signals = (signal.SIGTERM, signal.SIGINT)
+    previous_handlers = {
+        watched_signal: signal.signal(watched_signal, stop)
+        for watched_signal in watched_signals
+    }
+    try:
+        logger.info("worker_ready version=%s", __version__)
+        stopped.wait()
+    finally:
+        for watched_signal, previous_handler in previous_handlers.items():
+            signal.signal(watched_signal, previous_handler)
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -179,6 +214,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         level=getattr(logging, args.log_level),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    if args.command == "worker":
+        return _run_worker()
+
     alert_sink: AlertSink = LogAlertSink()
     window: DateWindow | None = None
     try:

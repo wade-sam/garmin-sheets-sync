@@ -11,8 +11,7 @@ when their adapters are selected.
 
 - Offline fixture-to-SQLite sync is implemented and tested.
 - Garmin Connect `0.3.9` parsing, bounded retries, native token persistence, and
-  failed-login token restoration are implemented but not yet smoke-tested against
-  the target account.
+  failed-login token restoration have been smoke-tested against the target account.
 - Google Sheets targeted-cell upserts are implemented against the documented
   `gspread 6.2.1` API but not yet run against the target workbook.
 - Activity links use the Garmin activities dashboard until a direct route is
@@ -146,9 +145,10 @@ cells, and refuses to replace a colliding non-Garmin row in `Weight Log`.
 Every failure exits nonzero and logs its source, destination, date window, and error
 type. Live adapters refuse to run with implicit log-only alerting. Set
 `ALERT_MODE=smtp` plus the `SMTP_*` and `ALERT_EMAIL_*` variables from `.env.example`
-for email, or set `ALERT_MODE=platform` only after Dokploy job-failure notifications
-are configured. Platform notifications remain important because in-process email
-cannot report a container that never starts.
+for production. Use `ALERT_MODE=platform` only after a scheduled-job failure
+notification path has been independently configured and tested. External deployment
+notifications remain important because in-process email cannot report a container
+that never starts.
 
 The dashboard/formula layer should flag a `Last Successful Sync` older than 36 hours.
 A stopped ingestion process cannot reliably perform its own staleness check.
@@ -163,9 +163,28 @@ docker run --rm \
   --env SYNC_DESTINATION=google \
   --mount type=volume,src=garmin-sync-data,dst=/data \
   --mount type=bind,src="$PWD/google-service-account.json",dst=/run/secrets/google-service-account.json,readonly \
-  garmin-sheets-sync
+  garmin-sheets-sync sync
 ```
 
-Configure Dokploy to run the container 2-4 times daily with overlapping jobs
-disabled. The shared `/data/sync.lock` provides an additional non-blocking process
-lock, and `/data/garmin` preserves tokens between runs.
+The image defaults to a persistent `worker` process for Dokploy. The worker does not
+contact external APIs. Dokploy schedules execute `garmin-sheets-sync sync` inside
+the running container. The shared `/data/sync.lock` rejects overlapping runs, and
+`/data/garmin` preserves tokens between releases.
+
+## Production deployment
+
+Production uses the same release-driven pattern as `fplbuddy`:
+
+1. Release Please creates a Python release pull request from Conventional Commits.
+2. Merging it creates a `v*` GitHub release tag.
+3. GitHub Actions builds a multi-architecture image in GHCR.
+4. GitHub Actions updates the existing Dokploy application to that exact version.
+5. Dokploy continues running the worker; the next scheduled job performs the sync.
+
+Required GitHub secrets are `RELEASE_PLEASE_TOKEN`, `DOKPLOY_HOST`,
+`DOKPLOY_TOKEN`, `DOKPLOY_APP_ID`, and the three `DOKPLOY_REGISTRY_*` values
+documented in the runbook. Garmin, Google, and SMTP credentials belong in Dokploy,
+not GitHub Actions.
+
+The complete application, volume, secret-file mount, schedule, first-run, alerting,
+and rollback procedure is in [docs/dokploy-deployment.md](docs/dokploy-deployment.md).

@@ -21,6 +21,19 @@ SQLite upserts all records and the success marker in one transaction. Google She
 cannot make the read-then-write upsert atomic, so a non-blocking file lock is required
 on shared persistent storage. Dokploy should also disallow overlapping jobs.
 
+## Deployment lifecycle
+
+Dokploy application schedules execute commands inside an existing running
+container. The production image therefore defaults to a signal-aware `worker`
+process that performs no ingestion itself. Each scheduled execution invokes the
+existing one-shot `garmin-sheets-sync sync` command. A release deploy can restart
+the worker without making an unplanned Garmin request.
+
+Release Please owns Python version bumps and GitHub release tags. Tag-driven GitHub
+Actions builds publish exact-version, multi-architecture GHCR images and update the
+Dokploy Docker provider through its API. Manual workflow dispatch selects an
+existing release image so rollback never rebuilds code or replaces persistent data.
+
 ## Garmin package and response contract
 
 The live extra pins `garminconnect==0.3.9`, the current release at implementation
@@ -64,6 +77,6 @@ the value must contain `{activity_id}`.
 ## Open production decisions
 
 1. Confirm the workbook headers and `Settings!B2` success-marker location.
-2. Select SMTP details or rely on a configured Dokploy failure channel.
+2. Configure and verify SMTP failure alerts for scheduled runs.
 3. Confirm direct activity links and sanitized Garmin response shapes.
 4. Confirm whether the initial run needs history beyond the rolling lookback.
