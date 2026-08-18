@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/wade-sam/garmin-sheets-sync/compare/v0.3.0...v0.3.1) (2026-08-18)
+
+
+### Bug Fixes
+
+* accept unpopulated Garmin daily counters ([#3](https://github.com/wade-sam/garmin-sheets-sync/issues/3)) ([f9e6453](https://github.com/wade-sam/garmin-sheets-sync/commit/f9e645312625114b2ee02c0c5a1d773bcfd6ab34))
+
 ## [0.3.0](https://github.com/wade-sam/garmin-sheets-sync/compare/v0.2.0...v0.3.0) (2026-08-18)
 
 
