@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import signal
@@ -22,6 +23,15 @@ from garmin_sheets_sync.adapters.fixture_source import FixtureSource
 from garmin_sheets_sync.adapters.garmin_source import GarminConnectSource
 from garmin_sheets_sync.adapters.google_sheets_destination import (
     GoogleSheetsDestination,
+)
+from garmin_sheets_sync.adapters.onedrive_storage import (
+    GraphOneDriveStorage,
+    PersistentMsalTokenProvider,
+)
+from garmin_sheets_sync.adapters.onedrive_workbook_inspector import inspect_workbook
+from garmin_sheets_sync.adapters.onedrive_xlsx_destination import (
+    OneDriveXlsxDestination,
+    normalize_workbook_path,
 )
 from garmin_sheets_sync.adapters.sqlite_destination import SqliteDestination
 from garmin_sheets_sync.errors import ConfigurationError
@@ -77,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sync.add_argument(
         "--destination",
-        choices=("sqlite", "google"),
+        choices=("sqlite", "google", "onedrive"),
         default=_env("SYNC_DESTINATION", "sqlite"),
     )
     sync.add_argument("--start", type=_iso_date, help="inclusive start date")
@@ -117,6 +127,34 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
         default=_env("LOG_LEVEL", "INFO"),
     )
+    onedrive_auth = subparsers.add_parser(
+        "onedrive-auth",
+        help="perform the one-time personal OneDrive device login",
+    )
+    onedrive_auth.add_argument(
+        "--lock-file",
+        type=Path,
+        default=Path(_env("SYNC_LOCK_FILE", ".local/sync.lock") or ".local/sync.lock"),
+    )
+    onedrive_auth.add_argument(
+        "--log-level",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        default=_env("LOG_LEVEL", "INFO"),
+    )
+    onedrive_inspect = subparsers.add_parser(
+        "onedrive-inspect",
+        help="download and inspect the workbook structure without modifying it",
+    )
+    onedrive_inspect.add_argument(
+        "--lock-file",
+        type=Path,
+        default=Path(_env("SYNC_LOCK_FILE", ".local/sync.lock") or ".local/sync.lock"),
+    )
+    onedrive_inspect.add_argument(
+        "--log-level",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        default=_env("LOG_LEVEL", "INFO"),
+    )
     return parser
 
 
@@ -130,10 +168,17 @@ def _require_env(name: str) -> str:
 def _build_source(args: argparse.Namespace) -> Source:
     if args.source == "fixture":
         return FixtureSource(args.fixture)
+    token_dir = Path(_env("GARMIN_TOKEN_DIR", "~/.garminconnect") or "~/.garminconnect")
+    cached_token_exists = (token_dir.expanduser() / "garmin_tokens.json").is_file()
+    email = _env("GARMIN_EMAIL") or ""
+    password = _env("GARMIN_PASSWORD") or ""
+    if not cached_token_exists:
+        email = _require_env("GARMIN_EMAIL")
+        password = _require_env("GARMIN_PASSWORD")
     return GarminConnectSource.login(
-        _require_env("GARMIN_EMAIL"),
-        _require_env("GARMIN_PASSWORD"),
-        Path(_env("GARMIN_TOKEN_DIR", "~/.garminconnect") or "~/.garminconnect"),
+        email,
+        password,
+        token_dir,
         attempts=_positive_int(_env("GARMIN_RETRY_ATTEMPTS", "3") or "3"),
         base_delay_seconds=float(_env("GARMIN_RETRY_BASE_SECONDS", "10") or "10"),
         max_delay_seconds=float(_env("GARMIN_RETRY_MAX_SECONDS", "60") or "60"),
@@ -144,11 +189,37 @@ def _build_source(args: argparse.Namespace) -> Source:
 def _build_destination(args: argparse.Namespace) -> Destination:
     if args.destination == "sqlite":
         return SqliteDestination(args.database)
-    return GoogleSheetsDestination.from_service_account(
-        Path(_require_env("GOOGLE_SERVICE_ACCOUNT_FILE")),
-        _require_env("GOOGLE_SHEET_ID"),
-        settings_tab=_env("GOOGLE_SETTINGS_TAB", "Settings") or "Settings",
-        last_success_cell=_env("GOOGLE_LAST_SUCCESS_CELL", "B2") or "B2",
+    if args.destination == "google":
+        return GoogleSheetsDestination.from_service_account(
+            Path(_require_env("GOOGLE_SERVICE_ACCOUNT_FILE")),
+            _require_env("GOOGLE_SHEET_ID"),
+            settings_tab=_env("GOOGLE_SETTINGS_TAB", "Settings") or "Settings",
+            last_success_cell=_env("GOOGLE_LAST_SUCCESS_CELL", "B2") or "B2",
+        )
+    storage = _onedrive_storage()
+    return OneDriveXlsxDestination(
+        storage,
+        workbook_path=_require_env("ONEDRIVE_WORKBOOK_PATH"),
+        settings_tab=_env("ONEDRIVE_SETTINGS_TAB", "Settings") or "Settings",
+        last_success_cell=_env("ONEDRIVE_LAST_SUCCESS_CELL", "B2") or "B2",
+    )
+
+
+def _onedrive_storage() -> GraphOneDriveStorage:
+    return GraphOneDriveStorage(
+        _onedrive_token_provider(),
+        timeout_seconds=float(_env("ONEDRIVE_TIMEOUT_SECONDS", "60") or "60"),
+        retry_attempts=_positive_int(_env("ONEDRIVE_RETRY_ATTEMPTS", "3") or "3"),
+    )
+
+
+def _onedrive_token_provider() -> PersistentMsalTokenProvider:
+    return PersistentMsalTokenProvider(
+        _require_env("ONEDRIVE_CLIENT_ID"),
+        Path(
+            _env("ONEDRIVE_TOKEN_CACHE_FILE", ".local/onedrive-token-cache.json")
+            or ".local/onedrive-token-cache.json"
+        ),
     )
 
 
@@ -179,7 +250,7 @@ def _window(args: argparse.Namespace) -> DateWindow:
 
 def _validate_alert_mode(args: argparse.Namespace) -> None:
     mode = (_env("ALERT_MODE", "log") or "log").lower()
-    is_live_run = args.source == "garmin" or args.destination == "google"
+    is_live_run = args.source == "garmin" or args.destination != "sqlite"
     if is_live_run and mode == "log":
         raise ConfigurationError(
             "live runs require ALERT_MODE=smtp or explicit ALERT_MODE=platform"
@@ -216,6 +287,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     if args.command == "worker":
         return _run_worker()
+    if args.command == "onedrive-auth":
+        try:
+            with RunLock(args.lock_file):
+                _onedrive_token_provider().authenticate_device_code()
+            logger.info("onedrive_authentication_completed")
+            return 0
+        except Exception:
+            logger.exception("onedrive_authentication_failed")
+            return 1
+    if args.command == "onedrive-inspect":
+        try:
+            with RunLock(args.lock_file):
+                path = normalize_workbook_path(_require_env("ONEDRIVE_WORKBOOK_PATH"))
+                remote = _onedrive_storage().download(path)
+                inspection = inspect_workbook(
+                    remote.content,
+                    settings_tab=_env("ONEDRIVE_SETTINGS_TAB", "Settings") or "Settings",
+                    last_success_cell=(
+                        _env("ONEDRIVE_LAST_SUCCESS_CELL", "B2") or "B2"
+                    ),
+                )
+            print(json.dumps(inspection.as_dict(), indent=2))
+            return 0 if inspection.ready_for_sync else 2
+        except Exception:
+            logger.exception("onedrive_inspection_failed")
+            return 1
 
     alert_sink: AlertSink = LogAlertSink()
     window: DateWindow | None = None

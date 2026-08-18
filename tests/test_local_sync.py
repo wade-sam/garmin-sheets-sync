@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -6,6 +7,8 @@ from pytest import MonkeyPatch
 
 from garmin_sheets_sync import cli
 from garmin_sheets_sync.adapters.fixture_source import FixtureSource
+from garmin_sheets_sync.adapters.garmin_source import GarminConnectSource
+from garmin_sheets_sync.adapters.onedrive_xlsx_destination import OneDriveXlsxDestination
 from garmin_sheets_sync.adapters.sqlite_destination import SqliteDestination
 from garmin_sheets_sync.cli import main
 from garmin_sheets_sync.locking import RunLock
@@ -61,6 +64,8 @@ def test_cli_fixture_mode_needs_no_credentials(
         "GARMIN_PASSWORD",
         "GOOGLE_SERVICE_ACCOUNT_FILE",
         "GOOGLE_SHEET_ID",
+        "ONEDRIVE_CLIENT_ID",
+        "ONEDRIVE_WORKBOOK_PATH",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -87,12 +92,43 @@ def test_cli_fixture_mode_needs_no_credentials(
     assert result == 0
 
 
+def test_cli_garmin_source_uses_cached_token_without_credentials(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    token_dir = tmp_path / "garmin"
+    token_dir.mkdir()
+    (token_dir / "garmin_tokens.json").write_text("cached-token")
+    monkeypatch.setenv("GARMIN_TOKEN_DIR", str(token_dir))
+    monkeypatch.delenv("GARMIN_EMAIL", raising=False)
+    monkeypatch.delenv("GARMIN_PASSWORD", raising=False)
+    login_arguments: list[tuple[str, str, Path]] = []
+    expected_source = object()
+
+    def fake_login(email: str, password: str, path: Path, **_kwargs: object) -> object:
+        login_arguments.append((email, password, path))
+        return expected_source
+
+    monkeypatch.setattr(
+        GarminConnectSource,
+        "login",
+        staticmethod(fake_login),
+    )
+    args = cli.build_parser().parse_args(["sync", "--source", "garmin"])
+
+    source = cli._build_source(args)
+
+    assert source is expected_source
+    assert login_arguments == [("", "", token_dir)]
+
+
 def test_cli_worker_needs_no_credentials(monkeypatch: MonkeyPatch) -> None:
     for name in (
         "GARMIN_EMAIL",
         "GARMIN_PASSWORD",
         "GOOGLE_SERVICE_ACCOUNT_FILE",
         "GOOGLE_SHEET_ID",
+        "ONEDRIVE_CLIENT_ID",
+        "ONEDRIVE_WORKBOOK_PATH",
     ):
         monkeypatch.delenv(name, raising=False)
     worker_started = False
@@ -108,6 +144,97 @@ def test_cli_worker_needs_no_credentials(monkeypatch: MonkeyPatch) -> None:
 
     assert result == 0
     assert worker_started is True
+
+
+def test_cli_builds_onedrive_destination_without_google_credentials(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEDRIVE_CLIENT_ID", "client-id")
+    monkeypatch.setenv("ONEDRIVE_WORKBOOK_PATH", "/Apps/Garmin/RP Cut.xlsx")
+    monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_FILE", raising=False)
+    monkeypatch.delenv("GOOGLE_SHEET_ID", raising=False)
+    args = cli.build_parser().parse_args(["sync", "--destination", "onedrive"])
+
+    destination = cli._build_destination(args)
+
+    assert isinstance(destination, OneDriveXlsxDestination)
+    assert destination.name == "onedrive"
+
+
+def test_cli_onedrive_auth_runs_explicit_device_login(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    authenticated = False
+
+    class FakeProvider:
+        def authenticate_device_code(self) -> None:
+            nonlocal authenticated
+            authenticated = True
+
+    monkeypatch.setattr(cli, "_onedrive_token_provider", FakeProvider)
+
+    result = main(
+        [
+            "onedrive-auth",
+            "--lock-file",
+            str(tmp_path / "sync.lock"),
+        ]
+    )
+
+    assert result == 0
+    assert authenticated is True
+
+
+def test_cli_onedrive_inspect_is_read_only(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: object,
+) -> None:
+    from io import BytesIO
+
+    from openpyxl import Workbook
+
+    from garmin_sheets_sync.adapters.onedrive_xlsx_destination import RemoteFile
+    from garmin_sheets_sync.adapters.workbook_contract import (
+        ACTIVITY_HEADERS,
+        DAILY_HEADERS,
+        WEIGHT_HEADERS,
+    )
+
+    workbook = Workbook()
+    workbook.active.title = "Weight Log"
+    workbook["Weight Log"].append(WEIGHT_HEADERS)
+    workbook.create_sheet("Garmin Daily Activity").append(DAILY_HEADERS)
+    workbook.create_sheet("Garmin Activities").append(ACTIVITY_HEADERS)
+    workbook.create_sheet("Settings")
+    output = BytesIO()
+    workbook.save(output)
+
+    class ReadOnlyStorage:
+        downloads: list[str] = []
+
+        def download(self, path: str) -> RemoteFile:
+            self.downloads.append(path)
+            return RemoteFile(output.getvalue(), '"etag"')
+
+    storage = ReadOnlyStorage()
+    monkeypatch.setenv("ONEDRIVE_WORKBOOK_PATH", "/Apps/Garmin/RP Cut.xlsx")
+    monkeypatch.setattr(cli, "_onedrive_storage", lambda: storage)
+
+    result = main(
+        [
+            "onedrive-inspect",
+            "--lock-file",
+            str(tmp_path / "sync.lock"),
+        ]
+    )
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    report = json.loads(captured.out)
+    assert result == 0
+    assert report["ready_for_sync"] is True
+    assert storage.downloads == ["/Apps/Garmin/RP Cut.xlsx"]
 
 
 def test_cli_acquires_lock_before_building_source(

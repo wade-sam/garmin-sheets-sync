@@ -15,3 +15,7 @@ class SchemaError(SyncError):
 
 class ConcurrentRunError(SyncError):
     """Another sync process already owns the run lock."""
+
+
+class RemoteFileChangedError(SyncError):
+    """The remote workbook changed after the sync downloaded it."""

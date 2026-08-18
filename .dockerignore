@@ -12,3 +12,4 @@ tests
 docs
 fixtures
 *service-account*.json
+*onedrive-token-cache*.json

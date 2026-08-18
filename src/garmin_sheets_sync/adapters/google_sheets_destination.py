@@ -6,33 +6,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from garmin_sheets_sync.adapters import workbook_contract
 from garmin_sheets_sync.errors import ConfigurationError, SchemaError
 from garmin_sheets_sync.models import IngestionBatch, format_timestamp
 from garmin_sheets_sync.ports import SyncReport, UpsertCounts
 
-WEIGHT_HEADERS = (
-    "Measurement Timestamp",
-    "Weight (kg)",
-    "Body Fat (%)",
-    "Skeletal Muscle Mass (kg)",
-    "Bone Mass (kg)",
-    "Body Water (%)",
-    "BMI",
-    "Source",
-)
-DAILY_HEADERS = ("Date", "Steps", "Active Calories")
-ACTIVITY_HEADERS = (
-    "Activity ID",
-    "Activity Name",
-    "Activity Type",
-    "Start Time",
-    "Duration (seconds)",
-    "Distance (meters)",
-    "Calories (kcal)",
-    "Average Heart Rate (bpm)",
-    "Max Heart Rate (bpm)",
-    "Garmin Connect Link",
-)
+ACTIVITY_HEADERS = workbook_contract.ACTIVITY_HEADERS
+DAILY_HEADERS = workbook_contract.DAILY_HEADERS
+WEIGHT_HEADERS = workbook_contract.WEIGHT_HEADERS
 
 
 def _column_name(number: int) -> str:

@@ -13,4 +13,5 @@ coverage.xml
 .coverage
 htmlcov/
 garmin_tokens.json
+*onedrive-token-cache*.json
 *service-account*.json

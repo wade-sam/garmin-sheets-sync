@@ -99,7 +99,7 @@ GOOGLE_SERVICE_ACCOUNT_FILE=/run/secrets/google-service-account.json
 GOOGLE_SHEET_ID=<secret>
 GOOGLE_SETTINGS_TAB=Settings
 GOOGLE_LAST_SUCCESS_CELL=B2
-TZ=Europe/Paris
+TZ=Europe/London
 LOG_LEVEL=INFO
 ALERT_MODE=smtp
 SMTP_HOST=<secret>
@@ -131,6 +131,34 @@ The service account's `client_email` must have Editor access to the Google
 workbook. Create all required tabs and exact headers from the README before the
 first sync.
 
+### Personal OneDrive pilot
+
+To use the personal OneDrive adapter instead of Google, set these values in place
+of the `GOOGLE_*` variables:
+
+```text
+SYNC_DESTINATION=onedrive
+ONEDRIVE_CLIENT_ID=<application-client-id>
+ONEDRIVE_TOKEN_CACHE_FILE=/data/onedrive-token-cache.json
+ONEDRIVE_WORKBOOK_PATH=/Sam Diet.xlsx
+ONEDRIVE_SETTINGS_TAB=Settings
+ONEDRIVE_LAST_SUCCESS_CELL=B2
+```
+
+Do not mount the Google service-account JSON for a OneDrive-only deployment. Keep
+the schedule disabled, then run this once through Dokploy's Run Command feature and
+complete the displayed device login:
+
+```sh
+garmin-sheets-sync onedrive-auth
+```
+
+Run a fixture-to-OneDrive smoke test twice against a disposable workbook copy before
+enabling Garmin or the schedule against `Sam Diet.xlsx`, and inspect the copy in
+Excel for the web after each run. The token cache under `/data` is credential
+material and must survive releases. Full setup and workbook round-trip limitations
+are documented in [onedrive-adapter.md](onedrive-adapter.md).
+
 Use SMTP for production failures. Dokploy records schedule execution logs, but do
 not use `ALERT_MODE=platform` unless a scheduled-job failure notification path has
 been independently configured and tested.
@@ -142,21 +170,28 @@ Create an Application schedule in Dokploy:
 ```text
 Name: Garmin Sheets Sync
 Command: garmin-sheets-sync sync
-Cron: 15 6,14,22 * * *
-Timezone: Europe/Paris
+Cron: 15 * * * *
+Timezone: Europe/London
 Shell: sh
 Enabled: false during provisioning
 ```
 
-This runs at 06:15, 14:15, and 22:15 local time. The three-day rolling window and
+This runs hourly at 15 minutes past the hour. The three-day rolling window and
 idempotent upserts safely revisit recent data. `/data/sync.lock` rejects an
-overlapping invocation before a Garmin or Google client is constructed.
+overlapping invocation before a Garmin or spreadsheet client is constructed.
+
+If Excel or Claude holds the personal OneDrive workbook open for editing, the run
+can fail safely with HTTP `423` and leave the file unchanged. Do not force the
+lock. The next scheduled run revisits the same three-day window after the workbook
+is closed, so the hourly runs provide automatic catch-up without a long
+in-process wait.
 
 Keep the schedule disabled while provisioning runtime credentials and performing
 the first manual sync. Enable it only after that sync completes successfully.
 
-Do not schedule near midnight. The explicit application and schedule timezones keep
-the rolling date window aligned with Garmin calendar dates.
+The explicit application and schedule timezones keep the rolling date window
+aligned with Garmin calendar dates. Partial current-day data is revisited on every
+subsequent run.
 
 ## 5. First deployment and live verification
 

@@ -42,13 +42,13 @@ class SmtpAlertSink:
 
     def notify_failure(self, context: FailureContext) -> None:
         message = EmailMessage()
-        message["Subject"] = "Garmin Sheets sync failed"
+        message["Subject"] = "Garmin spreadsheet sync failed"
         message["From"] = self._settings.sender
         message["To"] = self._settings.recipient
         message.set_content(
             "\n".join(
                 (
-                    "The Garmin to Google Sheets sync failed.",
+                    "The Garmin spreadsheet sync failed.",
                     f"Source: {context.source}",
                     f"Destination: {context.destination}",
                     f"Window: {context.window.start} through {context.window.end}",

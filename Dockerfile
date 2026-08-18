@@ -7,12 +7,12 @@ COPY --from=ghcr.io/astral-sh/uv:0.8.3 /uv /uvx /bin/
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH" \
-    TZ=Europe/Paris \
+    TZ=Europe/London \
     APP_VERSION=${APP_VERSION} \
     GARMIN_TOKEN_DIR=/data/garmin \
     SYNC_LOCK_FILE=/data/sync.lock \
     SYNC_SOURCE=garmin \
-    SYNC_DESTINATION=google \
+    SYNC_DESTINATION=onedrive \
     ALERT_MODE=smtp
 
 WORKDIR /app
