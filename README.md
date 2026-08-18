@@ -87,6 +87,8 @@ ALERT_MODE=platform SYNC_SOURCE=garmin SYNC_DESTINATION=onedrive \
 
 Without explicit dates, the command syncs a configurable inclusive three-day
 rolling window through today. Upserts make this safe for routine runs and backfills.
+When Garmin has not populated the current day's step or active-calorie counter yet,
+the adapter records zero; a later hourly run replaces it with the populated value.
 
 ## Secrets
 
