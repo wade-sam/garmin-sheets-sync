@@ -89,13 +89,13 @@ def parse_body_composition(payload: Any) -> tuple[WeightMeasurement, ...]:
 def parse_daily_summary(payload: Any) -> DailyActivity:
     if not isinstance(payload, dict):
         raise SchemaError("Garmin daily summary response must be an object")
+    steps = payload.get("totalSteps")
+    active_calories = payload.get("activeKilocalories")
     return DailyActivity.from_fixture(
         {
             "date": _required(payload, "calendarDate", "daily summary"),
-            "steps": _required(payload, "totalSteps", "daily summary"),
-            "active_calories": _required(
-                payload, "activeKilocalories", "daily summary"
-            ),
+            "steps": 0 if steps is None else steps,
+            "active_calories": 0 if active_calories is None else active_calories,
         }
     )
 

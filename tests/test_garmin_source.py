@@ -64,6 +64,24 @@ def test_parse_daily_summary_retains_zero_values() -> None:
     assert record.active_calories == 0
 
 
+def test_parse_daily_summary_defaults_unpopulated_counters_to_zero() -> None:
+    record = parse_daily_summary({"calendarDate": "2026-08-19"})
+
+    assert record.steps == 0
+    assert record.active_calories == 0
+
+
+def test_parse_daily_summary_rejects_malformed_counters() -> None:
+    with pytest.raises(SchemaError, match="steps"):
+        parse_daily_summary(
+            {
+                "calendarDate": "2026-08-19",
+                "totalSteps": "unknown",
+                "activeKilocalories": 0,
+            }
+        )
+
+
 def test_parse_multiple_activities_and_optional_distance() -> None:
     records = parse_activities(
         [
